@@ -144,6 +144,147 @@ At a high level:
 8. **Run `CommandLineRunner` / `ApplicationRunner` beans** — post-startup hooks
 9. **Publish `ApplicationReadyEvent`** — application is now ready to serve requests
 
+# Spring Boot `SpringApplication.run()` — Internal Call Flow
+
+```text
+main()
+  │
+  ▼
+SpringApplication.run(MyApplication.class, args)
+  │
+  ├── new SpringApplication(...)
+  │      │
+  │      ├── deduceWebApplicationType()
+  │      ├── getBootstrapRegistryInitializers()
+  │      ├── getApplicationContextFactory()
+  │      ├── getApplicationListeners()
+  │      └── getSpringFactoriesInstances(...)
+  │
+  ▼
+SpringApplication.run(String... args)
+  │
+  ├── StopWatch.start()
+  │
+  ├── createBootstrapContext()
+  │
+  ├── configureHeadlessProperty()
+  │
+  ├── getRunListeners(args)
+  │       └── SpringApplicationRunListeners
+  │
+  ├── listeners.starting(...)
+  │
+  ├── prepareEnvironment(...)
+  │       │
+  │       ├── createEnvironment()
+  │       ├── configureEnvironment()
+  │       ├── ConfigurationPropertySources.attach(...)
+  │       ├── getPropertySources()
+  │       └── EnvironmentPostProcessor
+  │
+  ├── createApplicationContext()
+  │       │
+  │       └── AnnotationConfigServletWebServerApplicationContext
+  │
+  ├── prepareContext(...)
+  │       │
+  │       ├── context.setEnvironment()
+  │       ├── postProcessApplicationContext()
+  │       ├── applyInitializers()
+  │       ├── listeners.contextPrepared(...)
+  │       ├── load(...)
+  │       │    └── register @Configuration class
+  │       └── listeners.contextLoaded(...)
+  │
+  ├── refreshContext(context)
+  │       │
+  │       └── AbstractApplicationContext.refresh()
+  │              │
+  │              ├── prepareRefresh()
+  │              ├── obtainFreshBeanFactory()
+  │              ├── prepareBeanFactory()
+  │              ├── postProcessBeanFactory()
+  │              ├── invokeBeanFactoryPostProcessors()
+  │              │      │
+  │              │      ├── ConfigurationClassPostProcessor
+  │              │      ├── @ComponentScan
+  │              │      ├── @Bean
+  │              │      ├── @Import
+  │              │      └── AutoConfiguration
+  │              │
+  │              ├── registerBeanPostProcessors()
+  │              ├── initMessageSource()
+  │              ├── initApplicationEventMulticaster()
+  │              ├── onRefresh()
+  │              │      └── start embedded Tomcat
+  │              │
+  │              ├── registerListeners()
+  │              ├── finishBeanFactoryInitialization()
+  │              │      └── instantiate singleton beans
+  │              │
+  │              └── finishRefresh()
+  │
+  ├── afterRefresh(...)
+  │
+  ├── listeners.started(...)
+  │
+  ├── callRunners(...)
+  │       ├── ApplicationRunner
+  │       └── CommandLineRunner
+  │
+  └── listeners.ready(...)
+         │
+         ▼
+   ApplicationReadyEvent
+```
+# Spring Boot `SpringApplication.run()` — Simplified Internal Flow
+
+```text
+SpringApplication.run()
+        │
+        ▼
+Create SpringApplication
+        │
+        ▼
+Determine WebApplicationType
+        │
+        ▼
+Create Environment
+        │
+        ▼
+Load application.properties / yaml
+        │
+        ▼
+Create ApplicationContext
+        │
+        ▼
+Apply ApplicationContextInitializers
+        │
+        ▼
+Load @SpringBootApplication
+        │
+        ▼
+context.refresh()
+        │
+        ├── Component Scan
+        ├── Auto Configuration
+        ├── Bean Definitions
+        ├── BeanFactoryPostProcessors
+        ├── BeanPostProcessors
+        ├── Dependency Injection
+        ├── Singleton Creation
+        └── Embedded Tomcat
+        │
+        ▼
+ApplicationRunner / CommandLineRunner
+        │
+        ▼
+ApplicationReadyEvent
+        │
+        ▼
+Application is READY
+```
+
 ---
 
 **Q13. What are Embedded Servers, and why does Spring Boot use them?**
