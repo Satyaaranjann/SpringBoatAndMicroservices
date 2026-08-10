@@ -162,8 +162,8 @@ A **multi-stage build** uses multiple `FROM` statements in a single Dockerfile â
 # Stage 1: Build
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /app
-COPY pom.xml .
-COPY src ./src
+COPY ../pom.xml .
+COPY ../src ./src
 RUN --mount=type=cache,target=/root/.m2 ./mvnw clean package -DskipTests
 
 # Stage 2: Runtime

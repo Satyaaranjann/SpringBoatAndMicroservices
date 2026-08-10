@@ -603,7 +603,7 @@ services:
       - microservice-net
 
   order-service:
-    build: .
+    build: ..
     container_name: order-service
     depends_on:
       - mysql-db

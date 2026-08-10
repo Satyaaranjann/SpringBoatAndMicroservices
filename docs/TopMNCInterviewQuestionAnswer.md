@@ -595,11 +595,12 @@ At this point, in a **traditional deployment**, you could technically copy this 
 ## Phase 3: Containerization (Modern/Standard Approach)
 
 **Step 7 — Write a Dockerfile**
+
 ```dockerfile
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /app
-COPY pom.xml .
-COPY src ./src
+COPY ../pom.xml .
+COPY ../src ./src
 RUN ./mvnw clean package -DskipTests
 
 FROM eclipse-temurin:21-jre
