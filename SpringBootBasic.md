@@ -298,7 +298,122 @@ Traditionally, a Java web app was packaged as a WAR file and deployed to an exte
 Benefits: no separate server installation/configuration, consistent runtime environment across dev/prod, and the app can be run with a single `java -jar app.jar` command — which is a major enabler for containerization (Docker) and cloud-native deployment.
 
 ---
+# Spring Boot Main Class — Line-by-Line Explanation
 
+```java
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class SpringBoatAndMicroservicesApplication {
+
+    public static void main(String[] args) {
+
+        SpringApplication.run(SpringBoatAndMicroservicesApplication.class, args);
+
+    }
+}
+```
+
+---
+
+## Line 1–2: Imports
+
+```java
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+```
+
+- **`SpringApplication`** — a utility class that bootstraps and launches a Spring application. It sets up the Spring `ApplicationContext`, starts the embedded server (Tomcat by default), and wires everything together.
+- **`SpringBootApplication`** — an annotation that marks this class as the entry point and enables Spring Boot's auto-configuration magic.
+
+---
+
+## Line 3: `@SpringBootApplication`
+
+This single annotation is actually a **combination of three annotations**:
+
+| Annotation | What It Does |
+|---|---|
+| `@Configuration` | Marks this class as a source of Spring bean definitions — it can contain `@Bean` methods |
+| `@EnableAutoConfiguration` | Tells Spring Boot to automatically configure beans based on what's on the classpath (e.g., if `spring-boot-starter-web` is present, it auto-configures Tomcat, DispatcherServlet, Jackson, etc.) |
+| `@ComponentScan` | Tells Spring to scan this package and all sub-packages for components (`@Component`, `@Service`, `@Repository`, `@Controller`, `@RestController`) and register them as beans |
+
+This is exactly the "convention over configuration" magic that makes Spring Boot easier than plain Spring — one annotation replaces dozens of lines of manual XML/Java config.
+
+---
+
+## Line 4: Class Declaration
+
+```java
+public class SpringBoatAndMicroservicesApplication {
+```
+
+A plain public Java class. By convention, its name matches the project name and it typically sits in the **root package** of your application (e.g., `com.company.springbootandmicroservices`) — this matters because `@ComponentScan` only scans this package and everything below it. If a `@Service` or `@Controller` class lives in a sibling/parent package, it won't be picked up.
+
+---
+
+## Line 5: The `main` Method
+
+```java
+public static void main(String[] args) {
+```
+
+The standard Java entry point — the JVM looks for this exact signature (`public static void main(String[] args)`) to start any Java application. This is not Spring-specific; it's plain Java. `args` holds any command-line arguments passed when running the JAR (e.g., `java -jar app.jar --server.port=9090`).
+
+---
+
+## Line 6: Bootstrapping Spring
+
+```java
+SpringApplication.run(SpringBoatAndMicroservicesApplication.class, args);
+```
+
+This single line does a lot of work under the hood:
+
+1. Creates a `SpringApplication` instance
+2. Determines the application type (servlet web app, reactive web app, or none) based on classpath dependencies
+3. Creates the `ApplicationContext` (Spring's IoC container)
+4. Runs all `@EnableAutoConfiguration` logic to configure beans automatically
+5. Performs component scanning (finds and registers all `@Component`, `@Service`, `@Repository`, `@Controller` classes)
+6. Starts the embedded web server (Tomcat/Jetty/Undertow) if it's a web application
+7. Publishes application startup events
+
+**Parameters:**
+- `SpringBoatAndMicroservicesApplication.class` — tells Spring which class is the primary configuration source (needed to determine the base package for component scanning)
+- `args` — forwards any command-line arguments into the Spring application context, so they can be read as configuration properties
+
+---
+
+## Line 7–8: Closing Braces
+
+End of `main` method, end of class.
+
+---
+
+## What Actually Happens When You Run This
+
+```
+java -jar app.jar
+        │
+        ▼
+main() is invoked by the JVM
+        │
+        ▼
+SpringApplication.run() bootstraps Spring
+        │
+        ├─→ Creates ApplicationContext
+        ├─→ Auto-configures beans (DB, web, security, etc. based on classpath)
+        ├─→ Component-scans for @Controller, @Service, @Repository beans
+        ├─→ Starts embedded Tomcat server
+        └─→ App is now running and ready to accept requests
+```
+
+---
+
+## Why This Is Enough to Start a Whole Application
+
+This ~8-line class, combined with the right starter dependencies in `pom.xml` (like `spring-boot-starter-web`), is genuinely all you need to have a fully working REST API — no XML, no manual servlet configuration, no manually starting a server. This is the "less boilerplate" benefit of Spring Boot compared to plain Spring Framework, where the same setup would require significant manual configuration.
 ## Extra / Bonus Questions
 
 **Q14. Can you disable a specific auto-configuration? How?**

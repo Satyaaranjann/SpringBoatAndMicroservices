@@ -285,3 +285,701 @@ If `app.mail.host` is blank or `app.mail.port` is out of range, the application 
 ---
 
 *Interview tip: A strong signal to interviewers is connecting these concepts to real deployment practice — e.g., explaining precedence order in terms of "Kubernetes ConfigMap sets an env var, which overrides what's baked into the JAR" shows practical, not just textbook, understanding.*
+
+# Spring Boot Microservice Integration Guide
+### DB, Docker, Kafka, Redis, Eureka, Security, Tracing & More
+
+This document covers a production-style `application.properties` setup for a Spring Boot microservice, along with a companion `docker-compose.yml` to run all dependencies locally.
+
+---
+
+## 1. Application Info
+
+```properties
+spring.application.name=order-service
+server.port=8081
+server.servlet.context-path=/api/v1
+spring.profiles.active=dev
+```
+
+---
+
+## 2. Database Integration (MySQL)
+
+```properties
+spring.datasource.url=jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:orderdb}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+spring.datasource.username=${DB_USERNAME:root}
+spring.datasource.password=${DB_PASSWORD:root}
+spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+```
+
+**HikariCP Connection Pool**
+```properties
+spring.datasource.hikari.maximum-pool-size=10
+spring.datasource.hikari.minimum-idle=2
+spring.datasource.hikari.idle-timeout=30000
+spring.datasource.hikari.connection-timeout=20000
+spring.datasource.hikari.pool-name=OrderServiceHikariPool
+```
+
+**JPA / Hibernate**
+```properties
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+spring.jpa.properties.hibernate.format_sql=true
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQL8Dialect
+spring.jpa.open-in-view=false
+```
+
+**Flyway Migrations** (recommended over `ddl-auto` in production)
+```properties
+spring.flyway.enabled=true
+spring.flyway.locations=classpath:db/migration
+spring.flyway.baseline-on-migrate=true
+```
+
+**PostgreSQL Alternative**
+```properties
+# spring.datasource.url=jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:orderdb}
+# spring.datasource.driver-class-name=org.postgresql.Driver
+# spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+```
+
+---
+
+## 3. Redis (Caching / Session Store)
+
+```properties
+spring.redis.host=${REDIS_HOST:localhost}
+spring.redis.port=${REDIS_PORT:6379}
+spring.redis.password=${REDIS_PASSWORD:}
+spring.redis.timeout=6000
+spring.cache.type=redis
+spring.cache.redis.time-to-live=600000
+```
+
+---
+
+## 4. Kafka Integration
+
+```properties
+spring.kafka.bootstrap-servers=${KAFKA_BROKER:localhost:9092}
+```
+
+**Producer**
+```properties
+spring.kafka.producer.key-serializer=org.apache.kafka.common.serialization.StringSerializer
+spring.kafka.producer.value-serializer=org.springframework.kafka.support.serializer.JsonSerializer
+spring.kafka.producer.acks=all
+spring.kafka.producer.retries=3
+spring.kafka.producer.properties.enable.idempotence=true
+```
+
+**Consumer**
+```properties
+spring.kafka.consumer.group-id=order-service-group
+spring.kafka.consumer.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer
+spring.kafka.consumer.value-deserializer=org.springframework.kafka.support.serializer.JsonDeserializer
+spring.kafka.consumer.auto-offset-reset=earliest
+spring.kafka.consumer.properties.spring.json.trusted.packages=*
+```
+
+**Custom Topics**
+```properties
+app.kafka.topic.order-created=order-created-topic
+app.kafka.topic.order-cancelled=order-cancelled-topic
+```
+
+---
+
+## 5. RabbitMQ (Alternative/Additional Broker)
+
+```properties
+spring.rabbitmq.host=${RABBITMQ_HOST:localhost}
+spring.rabbitmq.port=${RABBITMQ_PORT:5672}
+spring.rabbitmq.username=${RABBITMQ_USER:guest}
+spring.rabbitmq.password=${RABBITMQ_PASS:guest}
+```
+
+---
+
+## 6. Service Discovery — Eureka Client
+
+```properties
+eureka.client.service-url.defaultZone=${EUREKA_URI:http://localhost:8761/eureka/}
+eureka.instance.prefer-ip-address=true
+eureka.client.fetch-registry=true
+eureka.client.register-with-eureka=true
+```
+
+---
+
+## 7. Config Server (Spring Cloud Config)
+
+```properties
+spring.config.import=optional:configserver:${CONFIG_SERVER_URI:http://localhost:8888}
+spring.cloud.config.fail-fast=true
+spring.cloud.config.retry.max-attempts=5
+```
+
+---
+
+## 8. API Gateway Routing (Reference Only)
+
+Defined on the gateway service itself, shown here for context:
+
+```properties
+# spring.cloud.gateway.routes[0].id=order-service
+# spring.cloud.gateway.routes[0].uri=lb://order-service
+# spring.cloud.gateway.routes[0].predicates[0]=Path=/api/v1/orders/**
+```
+
+---
+
+## 9. Feign Client (Inter-Service REST Calls)
+
+```properties
+feign.client.config.default.connectTimeout=5000
+feign.client.config.default.readTimeout=5000
+feign.circuitbreaker.enabled=true
+```
+
+---
+
+## 10. Resilience4j (Circuit Breaker / Retry)
+
+```properties
+resilience4j.circuitbreaker.instances.orderService.registerHealthIndicator=true
+resilience4j.circuitbreaker.instances.orderService.slidingWindowSize=10
+resilience4j.circuitbreaker.instances.orderService.failureRateThreshold=50
+resilience4j.circuitbreaker.instances.orderService.waitDurationInOpenState=10000
+
+resilience4j.retry.instances.orderService.maxAttempts=3
+resilience4j.retry.instances.orderService.waitDuration=2000
+```
+
+---
+
+## 11. Security (JWT / OAuth2)
+
+```properties
+spring.security.oauth2.resourceserver.jwt.issuer-uri=${JWT_ISSUER_URI:http://localhost:8080/auth/realms/microservices}
+app.jwt.secret=${JWT_SECRET:change-this-secret-key}
+app.jwt.expiration-ms=3600000
+```
+
+---
+
+## 12. Actuator (Health, Metrics, Monitoring)
+
+```properties
+management.endpoints.web.exposure.include=health,info,metrics,prometheus,circuitbreakers
+management.endpoint.health.show-details=always
+management.health.circuitbreakers.enabled=true
+management.metrics.tags.application=${spring.application.name}
+```
+
+---
+
+## 13. Distributed Tracing (Zipkin / Micrometer)
+
+```properties
+management.tracing.sampling.probability=1.0
+management.zipkin.tracing.endpoint=${ZIPKIN_URI:http://localhost:9411/api/v2/spans}
+```
+
+---
+
+## 14. Swagger / OpenAPI Docs
+
+```properties
+springdoc.api-docs.path=/api-docs
+springdoc.swagger-ui.path=/swagger-ui.html
+springdoc.swagger-ui.operationsSorter=method
+```
+
+---
+
+## 15. Docker-Specific Overrides
+
+When running under `docker-compose`, service names replace `localhost`:
+
+```properties
+DB_HOST=mysql-db
+KAFKA_BROKER=kafka:9092
+REDIS_HOST=redis
+EUREKA_URI=http://eureka-server:8761/eureka/
+CONFIG_SERVER_URI=http://config-server:8888
+ZIPKIN_URI=http://zipkin:9411/api/v2/spans
+```
+
+Apply these either via a `docker-compose.yml` `environment:` block, or an `application-docker.properties` profile activated with `spring.profiles.active=docker`.
+
+---
+
+## 16. Logging
+
+```properties
+logging.level.root=INFO
+logging.level.org.springframework.web=DEBUG
+logging.level.org.hibernate.SQL=DEBUG
+logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n
+logging.file.name=logs/order-service.log
+```
+
+---
+
+## Companion `docker-compose.yml`
+
+Spins up MySQL, Kafka + Zookeeper, Redis, Eureka Server, Zipkin, and the microservice itself.
+
+```yaml
+version: "3.8"
+
+services:
+
+  mysql-db:
+    image: mysql:8.0
+    container_name: mysql-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: orderdb
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - microservice-net
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - microservice-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+    networks:
+      - microservice-net
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - microservice-net
+
+  eureka-server:
+    image: steeltoeoss/eureka-server:latest   # replace with your own custom Eureka server image
+    container_name: eureka-server
+    ports:
+      - "8761:8761"
+    networks:
+      - microservice-net
+
+  zipkin:
+    image: openzipkin/zipkin:latest
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+    networks:
+      - microservice-net
+
+  order-service:
+    build: .
+    container_name: order-service
+    depends_on:
+      - mysql-db
+      - kafka
+      - redis
+      - eureka-server
+      - zipkin
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      DB_HOST: mysql-db
+      DB_PORT: 3306
+      DB_NAME: orderdb
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      KAFKA_BROKER: kafka:9092
+      REDIS_HOST: redis
+      EUREKA_URI: http://eureka-server:8761/eureka/
+      ZIPKIN_URI: http://zipkin:9411/api/v2/spans
+    ports:
+      - "8081:8081"
+    networks:
+      - microservice-net
+
+networks:
+  microservice-net:
+    driver: bridge
+
+volumes:
+  mysql-data:
+```
+
+---
+
+## Quick Reference Table
+
+| Integration | Purpose | Key Prefix |
+|---|---|---|
+| MySQL/Postgres | Primary datastore | `spring.datasource.*` |
+| HikariCP | Connection pooling | `spring.datasource.hikari.*` |
+| Flyway | DB schema migrations | `spring.flyway.*` |
+| Redis | Caching / sessions | `spring.redis.*` |
+| Kafka | Async messaging / events | `spring.kafka.*` |
+| RabbitMQ | Alternative message broker | `spring.rabbitmq.*` |
+| Eureka | Service discovery | `eureka.*` |
+| Spring Cloud Config | Centralized config | `spring.cloud.config.*` |
+| Feign | Inter-service REST calls | `feign.*` |
+| Resilience4j | Circuit breaker / retry | `resilience4j.*` |
+| OAuth2/JWT | Security | `spring.security.oauth2.*` |
+| Actuator | Health & metrics | `management.*` |
+| Zipkin | Distributed tracing | `management.zipkin.*` / `management.tracing.*` |
+| Swagger/OpenAPI | API docs | `springdoc.*` |
+| Docker Compose | Local orchestration | `docker-compose.yml` |
+
+
+
+# Spring Boot Project Structure Guide
+### REST API (Monolith) vs Microservices
+
+This guide covers two proven approaches to structuring a Spring Boot project:
+1. **Single REST API** — layered structure (entity, dto, mapper, repository, service, controller)
+2. **Microservices** — the same layered structure applied per-service, plus inter-service communication
+
+---
+
+# Part 1: Single REST API (Layered / Package-by-Layer)
+
+Organized by technical role. Best for a single deployable application with one shared database.
+
+## Project Structure
+
+```
+rest-api-project/
+├── src/
+│   ├── main/
+│   │   ├── java/com/company/restapi/
+│   │   │   ├── RestApiApplication.java              # main class
+│   │   │   │
+│   │   │   ├── controller/                           # REST endpoints
+│   │   │   │   ├── OrderController.java
+│   │   │   │   ├── CustomerController.java
+│   │   │   │   └── ProductController.java
+│   │   │   │
+│   │   │   ├── service/                               # business logic interfaces
+│   │   │   │   ├── OrderService.java
+│   │   │   │   ├── CustomerService.java
+│   │   │   │   └── ProductService.java
+│   │   │   │
+│   │   │   ├── service/impl/                          # business logic implementations
+│   │   │   │   ├── OrderServiceImpl.java
+│   │   │   │   ├── CustomerServiceImpl.java
+│   │   │   │   └── ProductServiceImpl.java
+│   │   │   │
+│   │   │   ├── repository/                            # data access layer (Spring Data JPA)
+│   │   │   │   ├── OrderRepository.java
+│   │   │   │   ├── CustomerRepository.java
+│   │   │   │   └── ProductRepository.java
+│   │   │   │
+│   │   │   ├── entity/                                 # JPA entities (DB tables)
+│   │   │   │   ├── Order.java
+│   │   │   │   ├── Customer.java
+│   │   │   │   ├── Product.java
+│   │   │   │   └── BaseEntity.java                     # common fields (id, createdAt, updatedAt)
+│   │   │   │
+│   │   │   ├── dto/                                     # request/response objects
+│   │   │   │   ├── request/
+│   │   │   │   │   ├── OrderRequest.java
+│   │   │   │   │   ├── CustomerRequest.java
+│   │   │   │   │   └── ProductRequest.java
+│   │   │   │   └── response/
+│   │   │   │       ├── OrderResponse.java
+│   │   │   │       ├── CustomerResponse.java
+│   │   │   │       └── ProductResponse.java
+│   │   │   │
+│   │   │   ├── mapper/                                  # entity <-> DTO conversion
+│   │   │   │   ├── OrderMapper.java
+│   │   │   │   ├── CustomerMapper.java
+│   │   │   │   └── ProductMapper.java
+│   │   │   │
+│   │   │   ├── exception/                               # centralized error handling
+│   │   │   │   ├── GlobalExceptionHandler.java
+│   │   │   │   ├── ResourceNotFoundException.java
+│   │   │   │   ├── BadRequestException.java
+│   │   │   │   └── ErrorResponse.java
+│   │   │   │
+│   │   │   ├── config/                                  # configuration classes
+│   │   │   │   ├── SwaggerConfig.java
+│   │   │   │   ├── SecurityConfig.java
+│   │   │   │   ├── WebConfig.java
+│   │   │   │   └── ModelMapperConfig.java
+│   │   │   │
+│   │   │   ├── validation/                              # custom validators (optional)
+│   │   │   │   ├── ValidEmail.java
+│   │   │   │   └── EmailValidator.java
+│   │   │   │
+│   │   │   ├── util/                                    # helper/utility classes
+│   │   │   │   ├── DateUtil.java
+│   │   │   │   └── ResponseUtil.java
+│   │   │   │
+│   │   │   ├── constant/                                # constants/enums
+│   │   │   │   ├── AppConstants.java
+│   │   │   │   └── OrderStatus.java
+│   │   │   │
+│   │   │   └── security/                                # JWT/auth (if applicable)
+│   │   │       ├── JwtFilter.java
+│   │   │       ├── JwtUtil.java
+│   │   │       └── UserDetailsServiceImpl.java
+│   │   │
+│   │   └── resources/
+│   │       ├── application.properties
+│   │       ├── application-dev.properties
+│   │       ├── application-prod.properties
+│   │       ├── db/migration/                            # Flyway scripts
+│   │       │   ├── V1__init_schema.sql
+│   │       │   └── V2__seed_data.sql
+│   │       ├── static/
+│   │       └── templates/
+│   │
+│   └── test/
+│       └── java/com/company/restapi/
+│           ├── controller/
+│           │   └── OrderControllerTest.java
+│           ├── service/
+│           │   └── OrderServiceTest.java
+│           └── repository/
+│               └── OrderRepositoryTest.java
+│
+├── Dockerfile
+├── docker-compose.yml
+├── pom.xml (or build.gradle)
+├── .gitignore
+└── README.md
+```
+
+## Layer-by-Layer Breakdown
+
+| Layer | Responsibility | Example |
+|---|---|---|
+| **Entity** | Maps directly to a DB table via JPA annotations (`@Entity`, `@Table`, `@Id`) | `Order.java` with `id`, `customerId`, `totalAmount`, `status` |
+| **Repository** | Extends `JpaRepository<Entity, ID>` — handles all DB queries | `interface OrderRepository extends JpaRepository<Order, Long>` |
+| **DTO (request/response)** | What actually crosses the wire — never expose entities directly | `OrderRequest` (input), `OrderResponse` (output) |
+| **Mapper** | Converts Entity ↔ DTO | `OrderMapper.toEntity()`, `OrderMapper.toResponse()` |
+| **Service (interface)** | Defines the business contract | `OrderService.createOrder(OrderRequest)` |
+| **Service Impl** | Actual business logic, transactions, calls repository + mapper | `OrderServiceImpl implements OrderService` |
+| **Controller** | HTTP layer only — routing, status codes, calls service | `@PostMapping("/orders")` |
+| **Exception** | `@ControllerAdvice` catches exceptions globally, returns consistent error JSON | `ResourceNotFoundException → 404` |
+
+## Sample Flow — Order Creation
+
+```
+Client → OrderController → OrderService (interface) → OrderServiceImpl
+                                                              ↓
+                                        OrderMapper.toEntity(OrderRequest)
+                                                              ↓
+                                              OrderRepository.save(entity)
+                                                              ↓
+                                        OrderMapper.toResponse(savedEntity)
+                                                              ↓
+                                            ← OrderResponse returned to client
+```
+
+## Practical Notes
+
+- **Interface + Impl for services**: some teams skip the interface and use a concrete `OrderService` class directly — less boilerplate, fine unless you need multiple implementations or heavy mocking in tests.
+- **Never return entities directly from controllers** — always map to a DTO. Avoids leaking DB structure, lazy-loading exceptions, and lets you version your API independently of your schema.
+- **MapStruct** is worth using for the mapper layer instead of hand-writing conversions — generates mapping code at compile time, no runtime reflection overhead (unlike ModelMapper).
+- **`BaseEntity`** with `@MappedSuperclass` holding `id`, `createdAt`, `updatedAt` (via `@CreatedDate`/`@LastModifiedDate` + `@EnableJpaAuditing`) saves repeating those fields in every entity.
+
+---
+
+# Part 2: Microservices Architecture
+
+Same layered structure applied **inside each individual service**, plus inter-service communication layers.
+
+## Top-Level Repo Layout
+
+```
+ecommerce-platform/
+├── order-service/            # full layered structure goes INSIDE each service
+├── payment-service/
+├── inventory-service/
+├── customer-service/
+├── api-gateway/               # Spring Cloud Gateway
+├── eureka-server/             # service discovery
+├── config-server/             # centralized config
+├── docker-compose.yml          # orchestrates all services together
+└── README.md
+```
+
+## Inside ONE Microservice (e.g. `order-service/`)
+
+```
+order-service/
+├── src/
+│   ├── main/
+│   │   ├── java/com/company/orderservice/
+│   │   │   ├── OrderServiceApplication.java
+│   │   │   │
+│   │   │   ├── controller/
+│   │   │   │   └── OrderController.java
+│   │   │   │
+│   │   │   ├── service/
+│   │   │   │   └── OrderService.java
+│   │   │   │
+│   │   │   ├── service/impl/
+│   │   │   │   └── OrderServiceImpl.java
+│   │   │   │
+│   │   │   ├── repository/
+│   │   │   │   └── OrderRepository.java
+│   │   │   │
+│   │   │   ├── entity/
+│   │   │   │   ├── Order.java
+│   │   │   │   └── BaseEntity.java
+│   │   │   │
+│   │   │   ├── dto/
+│   │   │   │   ├── request/
+│   │   │   │   │   └── OrderRequest.java
+│   │   │   │   └── response/
+│   │   │   │       ├── OrderResponse.java
+│   │   │   │       └── InventoryResponse.java        # DTO for data coming FROM another service
+│   │   │   │
+│   │   │   ├── mapper/
+│   │   │   │   └── OrderMapper.java
+│   │   │   │
+│   │   │   ├── exception/
+│   │   │   │   ├── GlobalExceptionHandler.java
+│   │   │   │   ├── ResourceNotFoundException.java
+│   │   │   │   └── ErrorResponse.java
+│   │   │   │
+│   │   │   ├── config/
+│   │   │   │   ├── SwaggerConfig.java
+│   │   │   │   ├── SecurityConfig.java
+│   │   │   │   ├── KafkaConfig.java
+│   │   │   │   └── FeignConfig.java
+│   │   │   │
+│   │   │   ├── client/                                 # ⭐ calls to OTHER microservices
+│   │   │   │   ├── InventoryClient.java                # Feign interface -> inventory-service
+│   │   │   │   ├── PaymentClient.java                  # Feign interface -> payment-service
+│   │   │   │   └── fallback/
+│   │   │   │       └── InventoryClientFallback.java    # circuit breaker fallback
+│   │   │   │
+│   │   │   ├── kafka/                                   # ⭐ async events between services
+│   │   │   │   ├── producer/
+│   │   │   │   │   └── OrderEventProducer.java          # publishes "OrderCreatedEvent"
+│   │   │   │   ├── consumer/
+│   │   │   │   │   └── PaymentEventConsumer.java        # listens for "PaymentCompletedEvent"
+│   │   │   │   └── event/
+│   │   │   │       ├── OrderCreatedEvent.java
+│   │   │   │       └── PaymentCompletedEvent.java
+│   │   │   │
+│   │   │   ├── constant/
+│   │   │   │   └── OrderStatus.java
+│   │   │   │
+│   │   │   └── util/
+│   │   │       └── DateUtil.java
+│   │   │
+│   │   └── resources/
+│   │       ├── application.properties        # has eureka, kafka, feign, config-server settings
+│   │       ├── application-docker.properties
+│   │       └── db/migration/
+│   │           └── V1__init_order_schema.sql
+│   │
+│   └── test/
+│       └── java/com/company/orderservice/
+│           ├── controller/OrderControllerTest.java
+│           ├── service/OrderServiceTest.java
+│           └── integration/OrderIntegrationTest.java
+│
+├── Dockerfile
+├── pom.xml
+└── README.md
+```
+
+## REST API vs Microservice — What Changes
+
+| Layer | Single REST API | Microservice |
+|---|---|---|
+| `entity/`, `dto/`, `mapper/`, `repository/`, `service/`, `controller/` | ✅ same | ✅ same — unchanged |
+| **Scope of entities** | All domain entities (`Order`, `Customer`, `Product`) | Only `Order` — this service owns nothing else |
+| **`client/`** | Not needed | Feign clients to call `inventory-service`, `payment-service`, etc. over HTTP |
+| **`kafka/`** | Optional | Producers/consumers to publish and react to events across services |
+| **`dto/response/`** | Only your own response DTOs | Also includes DTOs that mirror another service's response (e.g. `InventoryResponse`) since you can't share entities across services |
+| **Database** | One shared DB | `order-service` has its own DB — never touches `payment-service`'s tables directly |
+| **`application.properties`** | DB + basic config | Adds `eureka.client.*`, `spring.kafka.*`, `feign.*`, `spring.cloud.config.*` |
+
+## Example Flow Across Services (Order → Inventory → Payment)
+
+```
+Client → OrderController → OrderService → OrderServiceImpl
+                                                 │
+                          ┌──────────────────────┼───────────────────────┐
+                          ▼                      ▼                       ▼
+                 OrderRepository        InventoryClient (Feign)   OrderEventProducer (Kafka)
+                 (save to own DB)        → calls inventory-service   → publishes OrderCreatedEvent
+                                                                              │
+                                                                              ▼
+                                                            payment-service consumes event,
+                                                            processes payment, publishes
+                                                            PaymentCompletedEvent
+                                                                              │
+                                                                              ▼
+                                              order-service's PaymentEventConsumer
+                                              updates Order status → COMPLETED
+```
+
+## The Core Rule That Changes Everything
+
+In a monolith, `OrderServiceImpl` can just call `CustomerRepository` directly since it's all one app. In microservices, **`order-service` cannot import `Customer` entity or `CustomerRepository` at all** — that code doesn't even exist in this codebase. It has to either:
+
+1. Call `customer-service` synchronously via `CustomerClient` (Feign), or
+2. React to events asynchronously via Kafka (e.g. keep a local read-only copy of customer data updated via `CustomerUpdatedEvent`)
+
+This is the core discipline of microservices: **no shared database, no shared entities** — only network calls or events cross service boundaries.
+
+---
+
+# Quick Decision Guide
+
+| If you're building... | Use |
+|---|---|
+| One app, one team, one database, moderate scale | **Part 1 — REST API layered structure** |
+| Multiple independent teams/domains, need independent scaling & deployment | **Part 2 — Microservices**, with Part 1's structure repeated per service |
+| Not sure yet | Start with Part 1. It's easier to split a well-organized monolith into services later than to prematurely manage a distributed system. |
+
+---
+
+# Summary Table — Layer Purpose (Applies to Both)
+
+| Layer | Purpose |
+|---|---|
+| `entity` | JPA-mapped DB tables |
+| `repository` | Data access (Spring Data JPA) |
+| `dto` | Request/response contracts exposed over the API |
+| `mapper` | Entity ↔ DTO conversion |
+| `service` / `service.impl` | Business logic, transactions |
+| `controller` | HTTP routing, request/response mapping |
+| `exception` | Centralized error handling (`@ControllerAdvice`) |
+| `config` | `@Configuration` classes (security, Swagger, Kafka, etc.) |
+| `client` *(microservices only)* | Feign clients for calling other services |
+| `kafka` *(microservices only)* | Event producers/consumers for async communication |
