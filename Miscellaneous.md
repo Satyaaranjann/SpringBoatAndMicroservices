@@ -1,9 +1,199 @@
-# Annotations, Security, JWT, Authentication & Networking — Q&A
+# HTTP, HTTPS & REST,Annotations, Security, JWT, Authentication & Networking — Q&A
 
 ---
 
-## Section 1: Annotations (Deep Dive / Mixed Recall)
+## Section 1: HTTP, HTTPS & REST,Annotations (Deep Dive / Mixed Recall)
 
+---
+
+# Part 1: HTTP vs HTTPS
+
+## HTTP (HyperText Transfer Protocol)
+- Application-layer protocol used for transferring data (web pages, APIs, files) between a client (browser/app) and a server.
+- **Stateless** — each request is independent; server doesn't remember previous requests unless you use cookies/sessions/tokens.
+- Runs on **port 80** by default.
+- Data is sent as **plain text** — anyone intercepting the traffic (on public WiFi, a proxy, etc.) can read it.
+
+## HTTPS (HTTP Secure)
+- HTTP layered over **SSL/TLS** encryption.
+- Runs on **port 443** by default.
+- Encrypts the data in transit, so it's unreadable if intercepted.
+- Also provides:
+    - **Authentication** — verifies you're talking to the real server (via SSL certificates issued by a trusted Certificate Authority)
+    - **Data integrity** — detects if data was tampered with in transit
+- Slightly more overhead due to the TLS handshake, but negligible with modern hardware — virtually all production sites use HTTPS today (browsers flag HTTP sites as "Not Secure").
+
+**Quick comparison:**
+
+| | HTTP | HTTPS |
+| --- | --- | --- |
+| Port | 80 | 443 |
+| Encryption | None | TLS/SSL |
+| Data format | Plain text | Encrypted |
+| Certificate needed | No | Yes (SSL cert) |
+| Browser trust | Flagged "Not Secure" | Trusted |
+
+## How the TLS Handshake Works (HTTPS setup, simplified)
+1. Client connects, requests a secure session
+2. Server sends its SSL certificate (contains public key)
+3. Client verifies the certificate against trusted Certificate Authorities
+4. Client and server negotiate a shared symmetric session key (using asymmetric encryption for this exchange)
+5. All further communication is encrypted using that fast symmetric key
+
+---
+
+# Part 2: REST on HTTP
+
+**REST (Representational State Transfer)** is an architectural style for designing APIs, built **on top of HTTP**, using its existing methods and status codes rather than inventing new ones.
+
+## How REST maps to HTTP Methods
+
+| HTTP Method | REST Meaning | Example | Idempotent? |
+| --- | --- | --- | --- |
+| `GET` | Retrieve a resource | `GET /users/5` → fetch user 5 | Yes |
+| `POST` | Create a new resource | `POST /users` → create a user | No |
+| `PUT` | Update/replace a resource entirely | `PUT /users/5` → replace user 5 | Yes |
+| `PATCH` | Partially update a resource | `PATCH /users/5` → update one field | No (typically) |
+| `DELETE` | Remove a resource | `DELETE /users/5` → delete user 5 | Yes |
+
+*Idempotent = calling it multiple times has the same effect as calling it once.*
+
+## Key REST Principles
+- **Stateless** — each request contains all info needed; server holds no client session state (inherits this from HTTP itself)
+- **Resource-based URLs** — nouns, not verbs: `/users/5` not `/getUser?id=5`
+- **Uses standard HTTP status codes** — `200 OK`, `201 Created`, `404 Not Found`, etc.
+- **Uniform interface** — consistent way to interact with resources across the API
+- **Client-Server separation** — frontend and backend evolve independently
+- **Cacheable** — responses should indicate whether they can be cached, to improve performance
+- **Layered system** — client can't tell if it's connected directly to the server or through an intermediary (load balancer, gateway)
+
+## Spring Boot REST Example
+
+```java
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    @GetMapping("/{id}")
+    public ResponseEntity<User> getUser(@PathVariable Long id) {
+        return ResponseEntity.ok(userService.findById(id));
+    }
+
+    @PostMapping
+    public ResponseEntity<User> createUser(@RequestBody User user) {
+        User saved = userService.save(user);
+        return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<User> updateUser(@PathVariable Long id, @RequestBody User user) {
+        return ResponseEntity.ok(userService.update(id, user));
+    }
+
+    @PatchMapping("/{id}")
+    public ResponseEntity<User> partialUpdate(@PathVariable Long id, @RequestBody Map<String, Object> updates) {
+        return ResponseEntity.ok(userService.partialUpdate(id, updates));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+        userService.delete(id);
+        return ResponseEntity.noContent().build();
+    }
+}
+```
+
+---
+
+# Part 3: HTTP Status Codes
+
+## 1xx — Informational
+| Code | Meaning |
+| --- | --- |
+| 100 | Continue |
+| 101 | Switching Protocols |
+
+## 2xx — Success
+| Code | Meaning | Common Use |
+| --- | --- | --- |
+| 200 | OK | Successful GET/PUT/PATCH |
+| 201 | Created | Successful POST that creates a resource |
+| 202 | Accepted | Request accepted for async processing |
+| 204 | No Content | Successful DELETE, or response with no body |
+
+## 3xx — Redirection
+| Code | Meaning |
+| --- | --- |
+| 301 | Moved Permanently |
+| 302 | Found (Temporary Redirect) |
+| 304 | Not Modified (caching) |
+
+## 4xx — Client Errors
+| Code | Meaning | Common Use |
+| --- | --- | --- |
+| 400 | Bad Request | Malformed request body/params |
+| 401 | Unauthorized | Missing/invalid authentication |
+| 403 | Forbidden | Authenticated but not allowed |
+| 404 | Not Found | Resource doesn't exist |
+| 405 | Method Not Allowed | Wrong HTTP method for endpoint |
+| 409 | Conflict | Duplicate resource / version conflict |
+| 422 | Unprocessable Entity | Validation errors |
+| 429 | Too Many Requests | Rate limiting |
+
+## 5xx — Server Errors
+| Code | Meaning |
+| --- | --- |
+| 500 | Internal Server Error |
+| 502 | Bad Gateway |
+| 503 | Service Unavailable |
+| 504 | Gateway Timeout |
+
+**Key interview distinction — 401 vs 403:**
+> `401 Unauthorized` means you're not authenticated at all (no/invalid credentials). `403 Forbidden` means you ARE authenticated, but don't have permission to access this resource.
+
+---
+
+# Part 4: Common HTTP/REST Interview Questions
+
+**Q1: Why is HTTP called "stateless"?**
+> The server doesn't retain any memory of previous requests from a client. Each request must carry all context needed (e.g. auth tokens, session IDs) — statefulness is simulated using cookies, sessions, or JWT tokens on top of HTTP.
+
+**Q2: What is the difference between PUT and PATCH?**
+> `PUT` replaces the entire resource — any fields not included in the request are typically wiped/reset to defaults. `PATCH` updates only the specified fields, leaving the rest unchanged.
+
+**Q3: What does "idempotent" mean, and which HTTP methods are idempotent?**
+> An idempotent operation produces the same result no matter how many times it's called. `GET`, `PUT`, `DELETE` are idempotent (calling DELETE on an already-deleted resource still leaves it deleted). `POST` is NOT idempotent (calling it twice typically creates two resources).
+
+**Q4: What is CORS and why does it matter for REST APIs?**
+> Cross-Origin Resource Sharing — a browser security mechanism that blocks JavaScript from making requests to a different domain/port than the one that served the page, unless the server explicitly allows it via response headers (`Access-Control-Allow-Origin`). In Spring Boot, handled via `@CrossOrigin` or a global CORS configuration.
+
+**Q5: What's the difference between authentication and authorization?**
+> Authentication verifies *who you are* (login/credentials). Authorization determines *what you're allowed to do* once authenticated (roles/permissions). Maps to 401 vs 403 respectively.
+
+**Q6: How do you version a REST API?**
+> Common approaches: URI versioning (`/api/v1/users`), header versioning (`Accept: application/vnd.company.v1+json`), or query param versioning (`/users?version=1`). URI versioning is most common for simplicity.
+
+**Q7: What is HATEOAS?**
+> "Hypermedia as the Engine of Application State" — a REST constraint where API responses include links to related actions/resources, so clients can navigate the API dynamically rather than hardcoding URLs.
+```json
+{
+  "id": 5,
+  "name": "Alice",
+  "links": [
+    { "rel": "self", "href": "/users/5" },
+    { "rel": "orders", "href": "/users/5/orders" }
+  ]
+}
+```
+
+**Q8: How does Spring Boot handle exceptions in REST APIs?**
+> Via `@ExceptionHandler` (per-controller) or `@RestControllerAdvice` (global), mapping exceptions to appropriate HTTP status codes and structured error responses.
+
+**Q9: What is the difference between a REST API and a SOAP API (if asked for contrast)?**
+> REST is lightweight, uses standard HTTP verbs/status codes, typically exchanges JSON. SOAP is a stricter protocol using XML envelopes, has built-in error handling and standards (WS-Security), and is more heavyweight — commonly used in enterprise/banking systems needing formal contracts (WSDL).
+
+**Q10: Why use HTTPS for REST APIs even for internal services?**
+> Prevents man-in-the-middle attacks, protects sensitive data (tokens, credentials, PII) in transit, and is often a compliance requirement (PCI-DSS, HIPAA, etc.) — even internal traffic can be intercepted on a compromised network segment.
 **Q1. Explain the difference between `@Component`, `@Bean`, `@Autowired`, and `@Qualifier` in one integrated example.**
 
 ```java
