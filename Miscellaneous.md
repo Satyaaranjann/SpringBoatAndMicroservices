@@ -552,3 +552,261 @@ Once containerized, deployment to a server or Kubernetes cluster looks **identic
 ---
 
 *Interview tip: If asked "how do you deploy a Java app," the strongest answers explicitly name which kind of Java app it is first (standalone, traditional WAR, or Spring Boot) — since the process genuinely differs — and then explain why Spring Boot's embedded-server model simplified this compared to the traditional WAR/Tomcat approach, before mentioning that containerization has since normalized the difference further.*
+
+
+# Dependency Injection (DI) — Detailed Explanation
+
+---
+
+## 1. What is Dependency Injection?
+
+**Dependency Injection** is a design pattern where an object's dependencies (the other objects/services it needs to function) are **provided to it from the outside**, rather than the object creating them itself.
+
+It's a specific form of **Inversion of Control (IoC)** — instead of your class controlling how its dependencies are created, that control is inverted and handed to a container/framework (in Spring Boot, the **Spring IoC Container**).
+
+---
+
+## 2. The Problem DI Solves
+
+**Without DI (tight coupling):**
+
+```java
+public class UserService {
+    private UserRepository userRepository = new UserRepositoryImpl(); // hardcoded dependency
+
+    public User getUser(Long id) {
+        return userRepository.findById(id);
+    }
+}
+```
+
+Problems with this approach:
+- `UserService` is **tightly coupled** to `UserRepositoryImpl` — can't swap implementations easily
+- Hard to **unit test** (can't mock `UserRepository` without modifying the class)
+- If `UserRepositoryImpl`'s constructor changes, every class that does `new UserRepositoryImpl()` breaks
+- No central place to manage object lifecycles
+
+**With DI (loose coupling):**
+
+```java
+public class UserService {
+    private final UserRepository userRepository;
+
+    public UserService(UserRepository userRepository) { // dependency injected via constructor
+        this.userRepository = userRepository;
+    }
+
+    public User getUser(Long id) {
+        return userRepository.findById(id);
+    }
+}
+```
+
+Now `UserService` doesn't know or care *how* `UserRepository` is created — it just receives a ready-to-use instance.
+
+---
+
+## 3. How DI Works — Step by Step
+
+1. **Define beans** — Spring scans classes annotated with `@Component`, `@Service`, `@Repository`, `@Controller`, or beans declared via `@Bean` methods in `@Configuration` classes.
+2. **Instantiate beans** — At application startup, Spring's IoC container creates instances of these classes and stores them in the **ApplicationContext** (a container/registry of all managed beans).
+3. **Resolve dependencies** — When Spring creates a bean that needs another bean (e.g. `UserService` needs `UserRepository`), it looks in the ApplicationContext for a matching bean and injects it.
+4. **Wire everything together** — This happens recursively; Spring builds a dependency graph and resolves it in the correct order.
+5. **Manage lifecycle** — Spring also manages when beans are created, initialized, and destroyed (especially relevant for singleton-scoped beans that live for the app's lifetime).
+
+---
+
+## 4. Types of Dependency Injection
+
+### A. Constructor Injection (recommended)
+
+```java
+@Service
+public class UserService {
+    private final UserRepository userRepository;
+    private final EmailService emailService;
+
+    // With one constructor, @Autowired is optional (Spring 4.3+)
+    public UserService(UserRepository userRepository, EmailService emailService) {
+        this.userRepository = userRepository;
+        this.emailService = emailService;
+    }
+}
+```
+
+**Why recommended:**
+- Allows fields to be `final` (immutable, thread-safe)
+- Dependencies are guaranteed to be non-null once the object is constructed
+- Makes testing easy — just pass mocks into the constructor directly
+- Fails fast at startup if a dependency is missing (rather than a NullPointerException later)
+
+### B. Setter Injection
+
+```java
+@Service
+public class UserService {
+    private UserRepository userRepository;
+
+    @Autowired
+    public void setUserRepository(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+}
+```
+
+Useful for **optional dependencies** — the bean can function (perhaps in a limited way) even if this setter is never called.
+
+### C. Field Injection (discouraged)
+
+```java
+@Service
+public class UserService {
+    @Autowired
+    private UserRepository userRepository;
+}
+```
+
+Easiest to write, but:
+- Can't make the field `final`
+- Hides dependencies (not visible in constructor signature — harder to see what a class needs at a glance)
+- Harder to unit test without Spring or reflection-based mocking
+- Circular dependencies fail silently until runtime
+
+---
+
+## 5. How Spring Resolves *Which* Bean to Inject
+
+Spring primarily injects **by type**. If there's ambiguity (multiple beans of the same type), it needs help:
+
+```java
+public interface Sender { void send(String msg); }
+
+@Component("emailSender")
+public class EmailSender implements Sender { }
+
+@Component("smsSender")
+public class SmsSender implements Sender { }
+
+@Service
+public class NotificationService {
+    private final Sender sender;
+
+    public NotificationService(@Qualifier("emailSender") Sender sender) {
+        this.sender = sender; // explicitly picks EmailSender
+    }
+}
+```
+
+Alternatively, mark one as the default:
+
+```java
+@Component
+@Primary
+public class EmailSender implements Sender { }
+```
+
+---
+
+## 6. Bean Scopes (affects how DI instances behave)
+
+| Scope | Behavior |
+| ----- | -------- |
+| `singleton` (default) | One shared instance per Spring container |
+| `prototype`           | New instance every time the bean is requested |
+| `request`             | One instance per HTTP request (web apps) |
+| `session`             | One instance per HTTP session |
+
+```java
+@Component
+@Scope("prototype")
+public class ReportGenerator { }
+```
+
+---
+
+## 7. DI and Testing — Where It Really Pays Off
+
+```java
+@ExtendWith(MockitoExtension.class)
+class UserServiceTest {
+
+    @Mock
+    private UserRepository userRepository;
+
+    @InjectMocks
+    private UserService userService; // Mockito injects the mock via constructor
+
+    @Test
+    void testGetUser() {
+        when(userRepository.findById(1L)).thenReturn(new User("Alice"));
+        User result = userService.getUser(1L);
+        assertEquals("Alice", result.getName());
+    }
+}
+```
+
+Because `UserService` receives `UserRepository` via its constructor, you can substitute a **mock** in tests instead of hitting a real database — this is the single biggest practical benefit of DI.
+
+---
+
+## 8. Circular Dependency Problem
+
+```java
+@Service
+public class A {
+    public A(B b) { }
+}
+
+@Service
+public class B {
+    public B(A a) { }  // circular!
+}
+```
+
+With **constructor injection**, this throws `BeanCurrentlyInCreationException` at startup — Spring can't decide which one to build first.
+
+**Fixes:**
+- Refactor to remove the circular reference (usually a sign of poor separation of concerns)
+- Use setter/field injection for one side (breaks the immediate cycle at construction time, though it's a workaround, not a real fix)
+- Use `@Lazy` on one dependency to defer its initialization
+
+---
+
+## 9. DI vs IoC — Clarifying the Relationship
+
+- **IoC (Inversion of Control)** is the broader principle: the framework controls object creation/flow, not your code.
+- **DI (Dependency Injection)** is *one implementation* of IoC — specifically about how dependencies get supplied to objects.
+- Other IoC mechanisms include the Service Locator pattern (though DI is generally preferred since dependencies are explicit, not hidden behind a lookup call).
+
+---
+
+## 10. Common Interview Questions on DI
+
+**Q1: Why is Constructor Injection preferred over Field Injection?**
+
+It allows immutable (`final`) fields, makes dependencies explicit and testable without a Spring context, and fails fast at startup if a required bean is missing — field injection can hide missing dependencies until runtime.
+
+**Q2: What is `@Autowired` doing internally?**
+
+It tells Spring's `AutowiredAnnotationBeanPostProcessor` to inject a matching bean from the ApplicationContext, resolved by type (and `@Qualifier`/bean name if there's ambiguity).
+
+**Q3: What happens if Spring can't find a bean to inject?**
+
+It throws `NoSuchBeanDefinitionException` at startup (with constructor injection) — this is one reason constructor injection is favored, since the failure surfaces immediately rather than at first use.
+
+**Q4: What if there are multiple beans of the same type?**
+
+Spring throws `NoUniqueBeanDefinitionException` unless you disambiguate with `@Qualifier`, `@Primary`, or by injecting a `List<Sender>`/`Map<String, Sender>` to get all implementations.
+
+**Q5: Can you inject a `List` of all beans implementing an interface?**
+
+```java
+@Autowired
+private List<Sender> allSenders; // Spring injects every Sender bean automatically
+```
+
+Yes — useful for strategy patterns where you want to iterate over all implementations.
+
+**Q6: Is DI specific to Spring?**
+
+No — DI is a general OOP design pattern, also used in .NET (via built-in DI container), Angular, Google Guice, Dagger (Android), etc. Spring just provides one popular implementation via its IoC container.
