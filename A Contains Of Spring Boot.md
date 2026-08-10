@@ -194,9 +194,9 @@
 
 18 . ## [MySQL](MySql.md)
 
-17 . ## [Top MNC Interview Question Answer](TopMNCInterviewQuestionAnswer.md)
+19 . ## [Top MNC Interview Question Answer](TopMNCInterviewQuestionAnswer.md)
 
-18 . ## [Miscellaneous](Miscellaneous.md)
+20 . ## [Miscellaneous](Miscellaneous.md)
 ---
 
 **Reference format inspired by:** [Java Fundamentals](https://github.com/Satyaaranjann/JavaDocs/blob/main/JavaFundamentals.md)
