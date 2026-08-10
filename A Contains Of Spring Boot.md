@@ -190,6 +190,13 @@
 * Hexagonal / Clean Architecture
 * Performance Tuning and Connection Pooling (HikariCP)
 
+17 . ## [Annotations — Complete Guide & Spring Boot Usage](Annotations.md)
+
+18 . ## [MySQL](MySql.md)
+
+17 . ## [Top MNC Interview Question Answer](TopMNCInterviewQuestionAnswer.md)
+
+18 . ## [Miscellaneous](Miscellaneous.md)
 ---
 
 **Reference format inspired by:** [Java Fundamentals](https://github.com/Satyaaranjann/JavaDocs/blob/main/JavaFundamentals.md)
