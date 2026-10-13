@@ -493,7 +493,6 @@ It follows classpath precedence — if `spring-boot-starter-web` is used (which 
 
 *Tip: In interviews, after a definition-style answer, be ready to follow up with a one-line "why it matters" — e.g., "constructor injection is preferred because it makes testing easier and dependencies explicit," not just "it's the recommended approach."*
 
-
 # Spring Boot Main Class: Line-by-Line Internals
 
 ```java
